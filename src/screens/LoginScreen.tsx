@@ -5,11 +5,10 @@ interface LoginScreenProps {
   onLogin: (technicianId: string, password: string, shift: string) => Promise<boolean>;
   technicians: Technician[];
   isBootstrapping: boolean;
-  backendMode: 'google' | 'local';
   backendError: string;
 }
 
-export default function LoginScreen({ onLogin, technicians, isBootstrapping, backendMode, backendError }: LoginScreenProps) {
+export default function LoginScreen({ onLogin, technicians, isBootstrapping, backendError }: LoginScreenProps) {
   const [selectedTechnician, setSelectedTechnician] = useState('');
   const [password, setPassword] = useState('');
   const [shift, setShift] = useState('Matutino');
@@ -72,7 +71,7 @@ export default function LoginScreen({ onLogin, technicians, isBootstrapping, bac
         </div>
 
         <div className="mb-4 rounded-lg border border-[#324d67] bg-[#192633] px-3 py-2 text-xs text-slate-300">
-          Backend activo: <span className="font-semibold text-white">{backendMode === 'google' ? 'Google Sheets' : 'Local demo'}</span>
+          Backend activo: <span className="font-semibold text-white">Google Sheets</span>
         </div>
 
         {isBootstrapping && (

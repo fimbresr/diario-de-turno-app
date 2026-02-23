@@ -1,45 +1,43 @@
-# Diario de Turno - Frontend + Supabase
+# Diario de Turno - Google Sheets Online
 
-Aplicación React (Vite + TypeScript) para registrar trabajos de mantenimiento con backend en Supabase.
+Aplicación React (Vite + TypeScript) con sincronización online directa a Google Sheets (sin modo offline).
 
 ## Requisitos
 
 - Node.js 20+
-- Proyecto de Supabase
+- Un Google Apps Script publicado como Web App
+- URL del Web App en `VITE_GOOGLE_SHEETS_URL`
 
-## 1) Configurar Supabase
+## Configuración
 
-1. Crea un proyecto en Supabase.
-2. Abre SQL Editor y ejecuta el script:
-   - `supabase/schema.sql`
-3. Copia estos valores desde `Project Settings > API`:
-   - `Project URL`
-   - `anon public key`
+1. En Google Apps Script:
+   - Crea un proyecto vinculado a una hoja.
+   - Pega el archivo `apps-script/Code.gs`.
+   - Si el script es standalone, ve a `Project Settings > Script properties` y agrega:
+     - `SPREADSHEET_ID=<ID de tu Google Sheet>`
+   - Publica como Web App con acceso de lectura/escritura para quienes usarán la app.
 
-## 2) Variables de entorno
-
-Crea `.env.local` en la raíz del proyecto:
+2. Crea `.env.local` en la raíz:
 
 ```bash
-VITE_SUPABASE_URL="https://YOUR_PROJECT_ID.supabase.co"
-VITE_SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_KEY"
+VITE_GOOGLE_SHEETS_URL="https://script.google.com/macros/s/TU_ID/exec"
 ```
 
-Puedes usar `.env.example` como referencia.
-
-## 3) Ejecutar
+3. Ejecuta:
 
 ```bash
 npm install
 npm run dev
 ```
 
-## Credenciales demo iniciales
+## Lógica operativa
 
-- `Carlos / 1234` (técnico)
-- `Rene / admin123` (admin)
+- Todas las tareas se leen desde Google Sheets al iniciar.
+- Al cerrar o editar tarea, se envía inmediatamente a Google Sheets y se refresca el historial.
+- Al borrar tarea (solo admin), se envía evento de borrado y se refresca historial.
+- No hay cola offline ni sincronización manual.
 
-## Notas
+## Permisos
 
-- Si no defines variables de Supabase, la app entra en modo local demo (sin backend remoto).
-- El script SQL incluye políticas RLS abiertas para demo con `anon`. Para producción debes restringir políticas y mover autenticación a Supabase Auth.
+- Admin: crear, editar, cerrar, borrar y exportar.
+- Usuario normal: crear, editar y cerrar.

@@ -11,6 +11,12 @@
 }
 
 @layer base {
+  html,
+  body,
+  #root {
+    overscroll-behavior-y: contain;
+  }
+
   body {
     @apply bg-[#101922] text-slate-100 font-display antialiased;
   }

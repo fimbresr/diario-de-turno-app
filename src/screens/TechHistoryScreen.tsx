@@ -9,13 +9,9 @@ interface TechHistoryScreenProps {
   onEditJob: (job: Job) => void;
   onDeleteJob: (jobId: string) => Promise<void>;
   onExportJob: (job: Job) => Promise<void>;
-  isSyncing: boolean;
-  onSyncPending: () => Promise<void>;
 }
 
-
-
-export default function TechHistoryScreen({ jobs, onNavigate, technicianName, userRole, onEditJob, onDeleteJob, onExportJob, isSyncing, onSyncPending }: TechHistoryScreenProps) {
+export default function TechHistoryScreen({ jobs, onNavigate, technicianName, userRole, onEditJob, onDeleteJob, onExportJob }: TechHistoryScreenProps) {
   const isAdmin = userRole === 'admin';
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -26,7 +22,6 @@ export default function TechHistoryScreen({ jobs, onNavigate, technicianName, us
       setConfirmDeleteId(null);
     }
   };
-  const pendingSync = jobs.filter(j => j.syncStatus === 'pending').length;
 
   return (
     <div className="min-h-screen bg-[#101922] text-white flex flex-col">
@@ -40,26 +35,9 @@ export default function TechHistoryScreen({ jobs, onNavigate, technicianName, us
             <span className="material-symbols-outlined">arrow_back</span>
           </button>
           <h1 className="text-base font-bold">Historial</h1>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={onSyncPending}
-              disabled={isSyncing}
-              title={pendingSync > 0 ? `Sincronizar (${pendingSync} pendientes)` : 'Todo sincronizado'}
-              className="flex items-center justify-center w-9 h-9 rounded-full hover:bg-slate-800 transition-colors disabled:opacity-50"
-              type="button"
-            >
-              {isSyncing ? (
-                <span className="material-symbols-outlined animate-spin text-primary text-[22px]">sync</span>
-              ) : pendingSync > 0 ? (
-                <span className="material-symbols-outlined text-amber-400 text-[22px]">cloud_upload</span>
-              ) : (
-                <span className="material-symbols-outlined text-green-400 text-[22px]">cloud_done</span>
-              )}
-            </button>
-            <button className="text-slate-300 hover:text-white" onClick={() => onNavigate('tech_profile')} type="button">
-              <span className="material-symbols-outlined">person</span>
-            </button>
-          </div>
+          <button className="text-slate-300 hover:text-white" onClick={() => onNavigate('tech_profile')} type="button">
+            <span className="material-symbols-outlined">person</span>
+          </button>
         </div>
       </header>
 
@@ -94,32 +72,19 @@ export default function TechHistoryScreen({ jobs, onNavigate, technicianName, us
               </div>
 
               <div className="flex items-center justify-between mt-4 border-t border-slate-800 pt-3">
-                <div className="flex flex-col gap-0.5">
-                  <p className="text-[11px] text-slate-500">
-                    {new Date(job.finishedAt).toLocaleString('es-MX')}
-                  </p>
-                  {job.syncStatus === 'pending' && (
-                    <span className="text-[10px] text-amber-400 flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[12px]">cloud_upload</span>Pendiente de sync
-                    </span>
-                  )}
-                  {job.syncStatus === 'synced' && (
-                    <span className="text-[10px] text-green-400 flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[12px]">cloud_done</span>Sincronizado
-                    </span>
-                  )}
-                </div>
+                <p className="text-[11px] text-slate-500">{new Date(job.finishedAt).toLocaleString('es-MX')}</p>
+
                 <div className="flex gap-2">
                   {isAdmin && (
-                    <button onClick={() => onExportJob(job)} className="flex h-7 w-7 items-center justify-center rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors" title="Exportar a PDF">
+                    <button onClick={() => onExportJob(job)} className="flex h-7 w-7 items-center justify-center rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors" title="Exportar a PDF" type="button">
                       <span className="material-symbols-outlined text-[16px]">print</span>
                     </button>
                   )}
-                  <button onClick={() => onEditJob(job)} className="flex h-7 w-7 items-center justify-center rounded bg-slate-700/50 text-slate-300 hover:text-white transition-colors" title="Editar">
+                  <button onClick={() => onEditJob(job)} className="flex h-7 w-7 items-center justify-center rounded bg-slate-700/50 text-slate-300 hover:text-white transition-colors" title="Editar" type="button">
                     <span className="material-symbols-outlined text-[16px]">edit</span>
                   </button>
                   {isAdmin && (
-                    <button onClick={() => handleDelete(job.id)} className="flex h-7 w-7 items-center justify-center rounded bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors" title="Borrar">
+                    <button onClick={() => handleDelete(job.id)} className="flex h-7 w-7 items-center justify-center rounded bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors" title="Borrar" type="button">
                       <span className="material-symbols-outlined text-[16px]">delete</span>
                     </button>
                   )}
@@ -146,7 +111,7 @@ export default function TechHistoryScreen({ jobs, onNavigate, technicianName, us
           </button>
         </div>
       </nav>
-      {/* Modal de confirmación de borrado */}
+
       {confirmDeleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-6">
           <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-[#192633] p-6 shadow-2xl">
@@ -156,7 +121,7 @@ export default function TechHistoryScreen({ jobs, onNavigate, technicianName, us
               </div>
               <h3 className="text-base font-bold text-white">¿Borrar tarea?</h3>
             </div>
-            <p className="text-sm text-slate-400 mb-6">Esta acción eliminará el registro de forma permanente en todos los dispositivos. No se puede deshacer.</p>
+            <p className="text-sm text-slate-400 mb-6">Esta acción eliminará el registro de forma permanente para todos los usuarios.</p>
             <div className="flex gap-3">
               <button
                 onClick={() => setConfirmDeleteId(null)}

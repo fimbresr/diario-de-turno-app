@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import LoginScreen from './screens/LoginScreen';
 import TechDashboardScreen from './screens/TechDashboardScreen';
 import RegisterJobScreen from './screens/RegisterJobScreen';
@@ -8,12 +8,11 @@ import TechHistoryScreen from './screens/TechHistoryScreen';
 import TechProfileScreen from './screens/TechProfileScreen';
 import AdminTeamScreen from './screens/AdminTeamScreen';
 import AdminSettingsScreen from './screens/AdminSettingsScreen';
-import { isGoogleSheetsConfigured, syncJobToSheets, fetchJobsFromSheets } from './lib/googleSheetsApi';
+import { fetchJobsFromSheets, isGoogleSheetsConfigured, syncJobToSheets } from './lib/googleSheetsApi';
 import { generatePdf } from './lib/pdfExport';
-import { getLocalJobs, saveLocalJob, deleteLocalJob, getDeletedJobIds } from './lib/localDb';
 import type { Job, JobDraft, Screen, Technician } from './types';
 
-const fallbackTechnicians: Technician[] = [
+const techniciansSeed: Technician[] = [
   { id: 'sanchez_hector', name: 'HECTOR RAUL SANCHEZ BUELNA', role: 'tech', shift: '', password: 'HS38123' },
   { id: 'encinas_luis', name: 'LUIS CARLOS ENCINAS CORDOVA', role: 'tech', shift: '', password: 'LE52124' },
   { id: 'fimbres_rene', name: 'RENE FIMBRES VASQUEZ', role: 'admin', shift: '', password: 'RF15621' },
@@ -21,51 +20,6 @@ const fallbackTechnicians: Technician[] = [
   { id: 'barba_jesus', name: 'JESUS MIGUEL BARBA ALCANTAR', role: 'tech', shift: '', password: 'JB57025' },
   { id: 'quijada_rogelio', name: 'ROGELIO ALBERTO QUIJADA GARCIA', role: 'tech', shift: '', password: 'RQ44523' },
   { id: 'lopez_carlos', name: 'CARLOS LOPEZ RENTERIA', role: 'tech', shift: '', password: 'CL65326' },
-];
-
-const fallbackJobs: Job[] = [
-  {
-    id: 'job-1',
-    area: 'Lobby Principal',
-    workType: 'Reparación A/C',
-    description: 'Ajuste de termostato y limpieza de filtros.',
-    additionalComments: '',
-    technicianName: 'Carlos',
-    shift: 'Turno Matutino',
-    createdAt: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
-    finishedAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-    signature: 'Carlos T.',
-    beforePhoto: null,
-    afterPhoto: null,
-  },
-  {
-    id: 'job-2',
-    area: 'Pasillo B • Nivel 2',
-    workType: 'Cambio de Luminarias',
-    description: 'Sustitución de 8 luminarias LED y prueba eléctrica.',
-    additionalComments: '',
-    technicianName: 'Carlos',
-    shift: 'Turno Matutino',
-    createdAt: new Date(Date.now() - 1000 * 60 * 280).toISOString(),
-    finishedAt: new Date(Date.now() - 1000 * 60 * 220).toISOString(),
-    signature: 'Carlos T.',
-    beforePhoto: null,
-    afterPhoto: null,
-  },
-  {
-    id: 'job-3',
-    area: 'Cuarto de Máquinas',
-    workType: 'Revisión Generador',
-    description: 'Inspección preventiva y bitácora de funcionamiento.',
-    additionalComments: '',
-    technicianName: 'Rene',
-    shift: 'Turno Completo',
-    createdAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-    finishedAt: new Date().toISOString(),
-    signature: '',
-    beforePhoto: null,
-    afterPhoto: null,
-  },
 ];
 
 const emptyDraft: JobDraft = {
@@ -77,97 +31,119 @@ const emptyDraft: JobDraft = {
   afterPhoto: null,
 };
 
+const sessionStorageKey = 'diario_turno_session_v1';
+const pullThreshold = 80;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function loadPersistedUser(): Technician | null {
+  if (typeof window === 'undefined') return null;
+
+  const raw = window.localStorage.getItem(sessionStorageKey);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Technician;
+    if (!parsed?.id || !parsed?.name || !parsed?.role) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function findScrollableAncestor(element: HTMLElement | null): HTMLElement | null {
+  let current = element;
+
+  while (current && current !== document.body) {
+    const style = window.getComputedStyle(current);
+    const overflowY = style.overflowY;
+    const isScrollable = (overflowY === 'auto' || overflowY === 'scroll') && current.scrollHeight > current.clientHeight;
+
+    if (isScrollable) {
+      return current;
+    }
+
+    current = current.parentElement;
+  }
+
+  return null;
+}
+
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<Screen>('login');
-  const [currentUser, setCurrentUser] = useState<Technician | null>(null);
-  const [technicians, setTechnicians] = useState<Technician[]>(fallbackTechnicians);
+  const restoredUser = loadPersistedUser();
+  const [currentScreen, setCurrentScreen] = useState<Screen>(
+    restoredUser ? (restoredUser.role === 'admin' ? 'admin_dashboard' : 'tech_dashboard') : 'login',
+  );
+  const [currentUser, setCurrentUser] = useState<Technician | null>(restoredUser);
+  const [technicians] = useState<Technician[]>(techniciansSeed);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [draft, setDraft] = useState<JobDraft>(emptyDraft);
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
   const [backendError, setBackendError] = useState('');
-  const [isBootstrapping, setIsBootstrapping] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [isWorking, setIsWorking] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
 
-  // Diario de Turno: todos los usuarios ven el log completo del turno.
-  // Las restricciones son de ACCIÓN (borrar/exportar = solo admin), no de visibilidad.
+  const touchStartYRef = useRef<number | null>(null);
+  const pullActiveRef = useRef(false);
+  const scrollElementRef = useRef<HTMLElement | null>(null);
+
   const visibleJobs = useMemo(() => {
     if (!currentUser) return [];
     return jobs;
   }, [currentUser, jobs]);
+
+  const refreshJobs = async (retryCount = 1, retryDelayMs = 450) => {
+    if (!isGoogleSheetsConfigured) {
+      throw new Error('Falta configurar VITE_GOOGLE_SHEETS_URL. Sin esto no hay sincronización.');
+    }
+
+    for (let attempt = 0; attempt <= retryCount; attempt += 1) {
+      try {
+        const remoteJobs = await fetchJobsFromSheets();
+        setJobs(remoteJobs);
+        return;
+      } catch (error) {
+        if (attempt === retryCount) {
+          throw error;
+        }
+        await wait(retryDelayMs);
+      }
+    }
+  };
 
   useEffect(() => {
     let active = true;
 
     async function initializeData() {
       setIsBootstrapping(true);
-      try {
-        const local = await getLocalJobs();
-        if (active) setJobs(local.length > 0 ? local : fallbackJobs);
 
-        if (isGoogleSheetsConfigured) {
-          try {
-            const remoteJobs = await fetchJobsFromSheets();
-
-            if (!active) return;
-
-            const currentLocal = await getLocalJobs();
-            const localMap = new Map(currentLocal.map((j) => [j.id, j]));
-            const deletedIds = await getDeletedJobIds();
-            let changedLocal = false;
-
-            // Crear mapa de IDs remotos (que no están borrados) para verificar existencia
-            const remoteActiveIds = new Set<string>();
-
-            for (const rj of remoteJobs) {
-              // Si la tarea fue marcada como borrada en otro dispositivo → eliminar localmente
-              if (rj.deleted) {
-                if (localMap.has(rj.id)) {
-                  await deleteLocalJob(rj.id);
-                  changedLocal = true;
-                }
-                continue;
-              }
-
-              remoteActiveIds.add(rj.id);
-
-              // No re-importar lo que el admin borró desde ESTE dispositivo
-              if (deletedIds.has(rj.id)) continue;
-
-              const localVersion = localMap.get(rj.id);
-              if (!localVersion) {
-                // Tarea nueva desde la nube — agregarla
-                await saveLocalJob({ ...rj, syncStatus: 'synced' });
-                changedLocal = true;
-              } else if (localVersion.syncStatus === 'synced') {
-                // Actualizar con la versión remota (otro dispositivo pudo haberla editado)
-                await saveLocalJob({ ...rj, syncStatus: 'synced' });
-                changedLocal = true;
-              }
-              // Si local está 'pending', NO sobreescribir con la remota
-            }
-
-            // ── Limpieza: eliminar tareas locales 'synced' que ya no existen en la nube ──
-            // Esto cubre el caso donde el admin borró tareas directamente de Sheets
-            // o donde el Apps Script no gestiona la columna 'deleted'.
-            for (const [localId, localJob] of localMap.entries()) {
-              if (localJob.syncStatus === 'synced' && !remoteActiveIds.has(localId) && !deletedIds.has(localId)) {
-                await deleteLocalJob(localId);
-                changedLocal = true;
-              }
-            }
-
-            if (changedLocal && active) {
-              const finalLocal = await getLocalJobs();
-              setJobs(finalLocal.length > 0 ? finalLocal : fallbackJobs);
-            }
-          } catch (fetchError) {
-            console.log("Aviso: No se pudo descargar historial de la nube (" + fetchError + "). Se usará puramente la caché offline.");
-          }
+      if (!isGoogleSheetsConfigured) {
+        if (active) {
+          setJobs([]);
+          setBackendError('Falta VITE_GOOGLE_SHEETS_URL. La app ahora requiere backend online (sin modo offline).');
+          setIsBootstrapping(false);
         }
+        return;
+      }
+
+      try {
+        const remoteJobs = await fetchJobsFromSheets();
+        if (!active) return;
+
+        setJobs(remoteJobs);
+        setBackendError('');
       } catch (error) {
-        if (active) setBackendError(error instanceof Error ? error.message : 'Error inicializando la base de datos.');
+        if (!active) return;
+        setBackendError(error instanceof Error ? error.message : 'No se pudo cargar el historial desde Google Sheets.');
       } finally {
-        if (active) setIsBootstrapping(false);
+        if (active) {
+          setIsBootstrapping(false);
+        }
       }
     }
 
@@ -178,7 +154,22 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if (currentUser) {
+      window.localStorage.setItem(sessionStorageKey, JSON.stringify(currentUser));
+      return;
+    }
+
+    window.localStorage.removeItem(sessionStorageKey);
+  }, [currentUser]);
+
   const handleLogin = async (technicianId: string, password: string, shift: string) => {
+    if (!isGoogleSheetsConfigured) {
+      setBackendError('No se puede iniciar sesión sin Google Sheets configurado.');
+      return false;
+    }
 
     const user = technicians.find((tech) => tech.id === technicianId);
 
@@ -195,7 +186,12 @@ export default function App() {
   const handleLogout = () => {
     setCurrentUser(null);
     setDraft(emptyDraft);
+    setEditingJobId(null);
     setCurrentScreen('login');
+    setPullDistance(0);
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(sessionStorageKey);
+    }
   };
 
   const handleContinueDraft = (nextDraft: JobDraft) => {
@@ -203,32 +199,42 @@ export default function App() {
   };
 
   const handleFinalizeJob = async (signature: string) => {
-    if (!currentUser) throw new Error('No hay sesión activa.');
+    if (!currentUser) {
+      throw new Error('No hay sesión activa.');
+    }
+
+    if (!isGoogleSheetsConfigured) {
+      throw new Error('Google Sheets no está configurado.');
+    }
+
+    setIsWorking(true);
 
     try {
-      let savedJob: Job;
+      const nowIso = new Date().toISOString();
+
+      let payload: Job;
 
       if (editingJobId) {
-        const existing = jobs.find((j) => j.id === editingJobId);
-        if (existing) {
-          const updated: Job = {
-            ...existing,
-            area: draft.area,
-            workType: draft.workType,
-            description: draft.description,
-            additionalComments: draft.additionalComments,
-            signature,
-            beforePhoto: draft.beforePhoto,
-            afterPhoto: draft.afterPhoto,
-            syncStatus: 'pending' as const
-          };
-          savedJob = await saveLocalJob(updated);
-          setJobs((prev) => prev.map((j) => (j.id === editingJobId ? savedJob : j)));
-        } else {
-          return;
+        const existing = jobs.find((job) => job.id === editingJobId);
+
+        if (!existing) {
+          throw new Error('No se encontró la tarea que intentas editar.');
         }
+
+        payload = {
+          ...existing,
+          area: draft.area,
+          workType: draft.workType,
+          description: draft.description,
+          additionalComments: draft.additionalComments,
+          signature,
+          beforePhoto: draft.beforePhoto,
+          afterPhoto: draft.afterPhoto,
+          finishedAt: nowIso,
+          deleted: false,
+        };
       } else {
-        const newJob: Job = {
+        payload = {
           id: `job-${Date.now()}`,
           area: draft.area,
           workType: draft.workType,
@@ -236,157 +242,82 @@ export default function App() {
           additionalComments: draft.additionalComments,
           technicianName: currentUser.name,
           shift: currentUser.shift,
-          createdAt: new Date().toISOString(),
-          finishedAt: new Date().toISOString(),
+          createdAt: nowIso,
+          finishedAt: nowIso,
           signature,
           beforePhoto: draft.beforePhoto,
           afterPhoto: draft.afterPhoto,
-          syncStatus: 'pending' as const
+          deleted: false,
         };
-        savedJob = await saveLocalJob(newJob);
-        setJobs((prev) => [savedJob, ...prev]);
       }
 
-      // ── Sincronización automática inmediata ──────────────────────
-      if (isGoogleSheetsConfigured) {
-        setIsSyncing(true);
-        try {
-          await syncJobToSheets(savedJob);
-          const synced = { ...savedJob, syncStatus: 'synced' as const };
-          await saveLocalJob(synced);
-          setJobs((prev) =>
-            prev.map((j) => (j.id === synced.id ? synced : j))
-          );
-        } catch (syncErr) {
-          // Si falla la red, quedará como 'pending' para sincronizar después
-          console.warn('Sync automático fallido, quedará pendiente:', syncErr);
-        } finally {
-          setIsSyncing(false);
-        }
+      await syncJobToSheets(payload);
+      try {
+        await refreshJobs(2, 500);
+        setBackendError('');
+      } catch {
+        // El write pudo haberse aplicado aunque el refresh falle; mantenemos UI consistente.
+        setJobs((prev) => {
+          const index = prev.findIndex((job) => job.id === payload.id);
+          if (index >= 0) {
+            const next = [...prev];
+            next[index] = payload;
+            return next;
+          }
+          return [payload, ...prev];
+        });
+        setBackendError('La tarea se guardó, pero no se pudo refrescar el historial en este momento.');
       }
 
-      setBackendError('');
-    } catch (e) {
-      console.error(e);
-      setBackendError('Error guardando tarea en el almacenamiento persistente local.');
+      setDraft(emptyDraft);
+      setEditingJobId(null);
+      setCurrentScreen(currentUser.role === 'admin' ? 'admin_dashboard' : 'tech_dashboard');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo sincronizar el cierre de la tarea.';
+      setBackendError(message);
+      throw new Error(message);
+    } finally {
+      setIsWorking(false);
     }
-
-    setDraft(emptyDraft);
-    setEditingJobId(null);
-    setCurrentScreen(currentUser.role === 'admin' ? 'admin_dashboard' : 'tech_dashboard');
   };
 
   const handleDeleteJob = async (jobId: string) => {
-    try {
-      // Encontrar la tarea antes de borrarla para poder enviar el soft-delete a Sheets
-      const jobToDelete = jobs.find(j => j.id === jobId);
-
-      // 1. Borrar localmente y marcar como borrada
-      await deleteLocalJob(jobId);
-      setJobs((prev) => prev.filter((j) => j.id !== jobId));
-      setBackendError('');
-
-      // 2. Propagar el borrado a Google Sheets (para que otros dispositivos también la eliminen)
-      if (jobToDelete && isGoogleSheetsConfigured) {
-        try {
-          await syncJobToSheets({ ...jobToDelete, deleted: true, syncStatus: 'synced' });
-        } catch (syncErr) {
-          console.warn('No se pudo propagar el borrado a la nube:', syncErr);
-          // No es crítico: la lista negra local ya evita que reaparezca en ESTE dispositivo
-        }
-      }
-    } catch (error) {
-      setBackendError(error instanceof Error ? error.message : 'Error borrando la tarea.');
-    }
-  };
-
-  const syncPendingJobs = async () => {
-    if (!isGoogleSheetsConfigured) {
-      alert('La URL de Google Sheets no está configurada en .env o careces de conexión a Internet.');
+    if (!currentUser || currentUser.role !== 'admin') {
+      setBackendError('Solo el administrador puede borrar tareas.');
       return;
     }
-    if (!currentUser) return;
-    setIsSyncing(true);
-    setBackendError('');
+
+    if (!isGoogleSheetsConfigured) {
+      setBackendError('Google Sheets no está configurado.');
+      return;
+    }
+
+    const job = jobs.find((item) => item.id === jobId);
+    if (!job) {
+      return;
+    }
+
+    setIsWorking(true);
 
     try {
-      // ── Subir pendientes ────────────────────────────────────────
-      const allLocal = await getLocalJobs();
-      const pending = allLocal.filter((j) => j.syncStatus === 'pending');
+      await syncJobToSheets({
+        ...job,
+        deleted: true,
+        finishedAt: new Date().toISOString(),
+      });
 
-      for (const pJob of pending) {
-        try {
-          await syncJobToSheets(pJob);
-          await saveLocalJob({ ...pJob, syncStatus: 'synced' });
-        } catch (e) {
-          console.error('Error sincronizando la tarea:', pJob.id, e);
-        }
-      }
-
-      // ── Descargar registros remotos nuevos (bidireccional) ──────
       try {
-        const remoteJobs = await fetchJobsFromSheets();
-        const currentLocal = await getLocalJobs();
-        const localMap = new Map(currentLocal.map((j) => [j.id, j]));
-        const deletedIds = await getDeletedJobIds();
-        let downloadedNew = false;
-
-        // Crear mapa de IDs remotos (que no están borrados) para verificar existencia
-        const remoteActiveIds = new Set<string>();
-
-        for (const rj of remoteJobs) {
-          // Si la tarea fue borrada en otro dispositivo → eliminarla aquí también
-          if (rj.deleted) {
-            if (localMap.has(rj.id)) {
-              await deleteLocalJob(rj.id);
-              downloadedNew = true;
-            }
-            continue;
-          }
-
-          remoteActiveIds.add(rj.id);
-
-          // No re-importar lo que el admin borró desde ESTE dispositivo
-          if (deletedIds.has(rj.id)) continue;
-
-          const localVersion = localMap.get(rj.id);
-          if (!localVersion) {
-            // Registro nuevo de otro dispositivo
-            await saveLocalJob({ ...rj, syncStatus: 'synced' });
-            downloadedNew = true;
-          } else if (localVersion.syncStatus === 'synced') {
-            // Actualizar con versión remota (puede haber sido editada en otro dispositivo)
-            await saveLocalJob({ ...rj, syncStatus: 'synced' });
-            downloadedNew = true;
-          }
-          // Si está 'pending' en local, conservar la versión local
-        }
-
-        // ── Limpieza: eliminar tareas locales 'synced' que ya no existen en la nube ──
-        // Esto cubre el caso donde el admin borró tareas directamente de Sheets
-        // o donde el Apps Script no gestiona la columna 'deleted'.
-        for (const [localId, localJob] of localMap.entries()) {
-          if (localJob.syncStatus === 'synced' && !remoteActiveIds.has(localId) && !deletedIds.has(localId)) {
-            await deleteLocalJob(localId);
-            downloadedNew = true;
-          }
-        }
-
-        if (downloadedNew) {
-          console.log('Nuevos registros descargados/actualizados de la nube.');
-        }
-      } catch (fetchErr) {
-        console.warn('No se pudo descargar registros remotos:', fetchErr);
+        await refreshJobs(2, 500);
+        setBackendError('');
+      } catch {
+        // Si falla refresco, quitamos localmente para no reintroducir la fila en la UI.
+        setJobs((prev) => prev.filter((item) => item.id !== jobId));
+        setBackendError('La tarea se borró, pero no se pudo refrescar el historial en este momento.');
       }
-
-      // Recargar lista local unificada
-      const finalLocal = await getLocalJobs();
-      setJobs(finalLocal.length > 0 ? finalLocal : fallbackJobs);
-    } catch (e) {
-      console.error(e);
-      setBackendError('Error general durante la sincronización.');
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : 'No se pudo borrar la tarea en la nube.');
     } finally {
-      setIsSyncing(false);
+      setIsWorking(false);
     }
   };
 
@@ -399,15 +330,115 @@ export default function App() {
       beforePhoto: job.beforePhoto,
       afterPhoto: job.afterPhoto,
     });
+
     setEditingJobId(job.id);
     setCurrentScreen('register_job');
   };
 
   const handleExportJob = async (job: Job) => {
+    if (!currentUser || currentUser.role !== 'admin') {
+      setBackendError('Solo el administrador puede exportar PDF.');
+      return;
+    }
+
     try {
       await generatePdf(job);
-    } catch (e) {
-      alert('Error exportando a PDF. Asegúrate de tener conexión.');
+    } catch {
+      setBackendError('Error exportando a PDF.');
+    }
+  };
+
+  const forceSync = async () => {
+    if (!currentUser || isBootstrapping || isWorking) return;
+
+    setIsWorking(true);
+    try {
+      await refreshJobs(2, 500);
+      setBackendError('');
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : 'No se pudo sincronizar en este momento.');
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const isReloadKey = event.key === 'F5'
+        || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r');
+
+      if (!isReloadKey) return;
+
+      event.preventDefault();
+      void forceSync();
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [currentUser, isBootstrapping, isWorking]);
+
+  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!currentUser || isWorking || isBootstrapping) return;
+
+    const touch = event.touches[0];
+    if (!touch) return;
+
+    const target = event.target as HTMLElement;
+    const scrollable = findScrollableAncestor(target);
+
+    if (scrollable && scrollable.scrollTop > 0) {
+      pullActiveRef.current = false;
+      touchStartYRef.current = null;
+      scrollElementRef.current = scrollable;
+      return;
+    }
+
+    touchStartYRef.current = touch.clientY;
+    pullActiveRef.current = true;
+    scrollElementRef.current = scrollable;
+    setPullDistance(0);
+  };
+
+  const handleTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!pullActiveRef.current || touchStartYRef.current === null) return;
+
+    const touch = event.touches[0];
+    if (!touch) return;
+
+    if (scrollElementRef.current && scrollElementRef.current.scrollTop > 0) {
+      pullActiveRef.current = false;
+      setPullDistance(0);
+      return;
+    }
+
+    const deltaY = touch.clientY - touchStartYRef.current;
+    if (deltaY <= 0) {
+      setPullDistance(0);
+      return;
+    }
+
+    event.preventDefault();
+    setPullDistance(Math.min(120, deltaY * 0.6));
+  };
+
+  const handleTouchEnd = () => {
+    if (!pullActiveRef.current) {
+      setPullDistance(0);
+      return;
+    }
+
+    const shouldSync = pullDistance >= pullThreshold;
+    pullActiveRef.current = false;
+    touchStartYRef.current = null;
+    scrollElementRef.current = null;
+    setPullDistance(0);
+
+    if (shouldSync) {
+      void forceSync();
     }
   };
 
@@ -427,7 +458,25 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#101922] flex justify-center">
-      <div className="w-full max-w-md bg-[#101922] shadow-2xl relative overflow-hidden">
+      <div
+        className="w-full max-w-md bg-[#101922] shadow-2xl relative overflow-hidden"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        {currentUser && (
+          <div
+            className={`absolute top-0 left-0 right-0 z-50 flex items-center justify-center transition-all duration-150 ${
+              pullDistance > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}
+            style={{ height: `${Math.max(0, pullDistance)}px` }}
+          >
+            <div className="mt-2 rounded-full bg-[#192633] border border-[#324d67] px-3 py-1 text-[11px] text-slate-300">
+              {pullDistance >= pullThreshold ? 'Suelta para sincronizar' : 'Jala para sincronizar'}
+            </div>
+          </div>
+        )}
+
         {backendError && currentScreen !== 'login' && (
           <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 text-[12px] text-amber-300">
             Backend: {backendError}
@@ -438,8 +487,7 @@ export default function App() {
           <LoginScreen
             onLogin={handleLogin}
             technicians={technicians}
-            isBootstrapping={isBootstrapping}
-            backendMode={isGoogleSheetsConfigured ? 'google' : 'local'}
+            isBootstrapping={isBootstrapping || isWorking}
             backendError={backendError}
           />
         )}
@@ -451,8 +499,6 @@ export default function App() {
             onLogout={handleLogout}
             technicianName={currentUser.name}
             shift={currentUser.shift}
-            isSyncing={isSyncing}
-            onSyncPending={syncPendingJobs}
           />
         )}
 
@@ -483,8 +529,6 @@ export default function App() {
             onEditJob={handleEditJob}
             onDeleteJob={handleDeleteJob}
             onExportJob={handleExportJob}
-            isSyncing={isSyncing}
-            onSyncPending={syncPendingJobs}
           />
         )}
 
@@ -507,8 +551,6 @@ export default function App() {
             onEditJob={handleEditJob}
             onDeleteJob={handleDeleteJob}
             onExportJob={handleExportJob}
-            isSyncing={isSyncing}
-            onSyncPending={syncPendingJobs}
           />
         )}
 

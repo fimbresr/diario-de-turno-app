@@ -7,8 +7,6 @@ interface TechDashboardScreenProps {
   jobs: Job[];
   technicianName: string;
   shift: string;
-  isSyncing: boolean;
-  onSyncPending: () => Promise<void>;
 }
 
 type JobVisual = 'blue' | 'amber' | 'purple' | 'rose';
@@ -19,8 +17,6 @@ const visualStyles: Record<JobVisual, { bg: string; text: string }> = {
   purple: { bg: 'bg-purple-900/30', text: 'text-purple-400' },
   rose: { bg: 'bg-rose-900/30', text: 'text-rose-400' },
 };
-
-
 
 function inferIcon(workType: string): string {
   const lower = workType.toLowerCase();
@@ -39,12 +35,11 @@ function inferVisual(workType: string): JobVisual {
   return 'blue';
 }
 
-export default function TechDashboardScreen({ onNavigate, onLogout, jobs, technicianName, shift, isSyncing, onSyncPending }: TechDashboardScreenProps) {
+export default function TechDashboardScreen({ onNavigate, onLogout, jobs, technicianName, shift }: TechDashboardScreenProps) {
   const recentJobs = jobs.slice(0, 4);
 
   const today = new Date().toDateString();
   const completedToday = jobs.filter((job) => new Date(job.finishedAt).toDateString() === today).length;
-  const pendingSync = jobs.filter(j => j.syncStatus === 'pending').length;
 
   return (
     <div className="relative flex h-screen w-full flex-col overflow-hidden bg-[#101922]">
@@ -72,7 +67,7 @@ export default function TechDashboardScreen({ onNavigate, onLogout, jobs, techni
       </header>
 
       <main className="flex-1 overflow-y-auto px-5 pb-24 scrollbar-hide">
-        <div className="py-2 flex flex-col gap-3">
+        <div className="py-2">
           <button
             onClick={() => onNavigate('register_job')}
             className="w-full flex items-center justify-center gap-3 bg-primary hover:bg-primary/90 text-white p-4 rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-[0.98] group"
@@ -82,33 +77,6 @@ export default function TechDashboardScreen({ onNavigate, onLogout, jobs, techni
               <span className="material-symbols-outlined">add</span>
             </span>
             <span className="text-lg font-bold">Registrar Nuevo Trabajo</span>
-          </button>
-
-          <button
-            onClick={onSyncPending}
-            disabled={isSyncing}
-            className={`w-full flex items-center justify-center gap-3 p-4 rounded-xl border shadow-lg mb-2 transition-all active:scale-[0.98] group disabled:opacity-50 ${pendingSync > 0
-                ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-                : 'bg-green-900/20 hover:bg-green-900/30 text-green-300 border-green-800/40'
-              }`}
-            type="button"
-          >
-            <span className="bg-slate-900/50 p-1.5 rounded-full flex items-center justify-center shadow-inner">
-              {isSyncing ? (
-                <span className="material-symbols-outlined animate-spin text-primary">sync</span>
-              ) : pendingSync > 0 ? (
-                <span className="material-symbols-outlined text-amber-400">cloud_upload</span>
-              ) : (
-                <span className="material-symbols-outlined text-green-400">cloud_done</span>
-              )}
-            </span>
-            <span className="text-sm font-semibold">
-              {isSyncing
-                ? 'Sincronizando a la Nube...'
-                : pendingSync > 0
-                  ? `Sincronizar tareas (${pendingSync} pendientes)`
-                  : 'Todo sincronizado ✓'}
-            </span>
           </button>
         </div>
 
@@ -125,12 +93,12 @@ export default function TechDashboardScreen({ onNavigate, onLogout, jobs, techni
           </div>
           <div className="bg-[#192633] p-4 rounded-xl border border-slate-800 shadow-sm flex flex-col justify-between h-24">
             <div className="flex justify-between items-start">
-              <span className="text-slate-400 text-xs font-medium uppercase tracking-wider">Pendientes</span>
-              <span className="material-symbols-outlined text-amber-500 text-[20px]">schedule</span>
+              <span className="text-slate-400 text-xs font-medium uppercase tracking-wider">Total</span>
+              <span className="material-symbols-outlined text-amber-500 text-[20px]">inventory</span>
             </div>
             <div>
-              <span className="text-2xl font-bold text-white">{pendingSync}</span>
-              <span className="text-xs text-slate-400 ml-1">por sincronizar</span>
+              <span className="text-2xl font-bold text-white">{jobs.length}</span>
+              <span className="text-xs text-slate-400 ml-1">registradas</span>
             </div>
           </div>
         </div>

@@ -41,6 +41,5 @@ export interface Job {
   signature: string;
   beforePhoto: string | null;
   afterPhoto: string | null;
-  syncStatus?: 'pending' | 'synced';
   deleted?: boolean;
 }

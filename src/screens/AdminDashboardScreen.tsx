@@ -9,25 +9,6 @@ interface AdminDashboardScreenProps {
   onEditJob: (job: Job) => void;
   onDeleteJob: (jobId: string) => Promise<void>;
   onExportJob: (job: Job) => Promise<void>;
-  isSyncing: boolean;
-  onSyncPending: () => Promise<void>;
-}
-
-type TaskVisual = 'blue' | 'orange' | 'purple' | 'teal';
-
-const visualStyles: Record<TaskVisual, { bg: string; text: string }> = {
-  blue: { bg: 'bg-blue-500/10', text: 'text-blue-500' },
-  orange: { bg: 'bg-orange-500/10', text: 'text-orange-500' },
-  purple: { bg: 'bg-purple-500/10', text: 'text-purple-500' },
-  teal: { bg: 'bg-teal-500/10', text: 'text-teal-500' },
-};
-
-function inferVisual(workType: string): TaskVisual {
-  const lower = workType.toLowerCase();
-  if (lower.includes('elect') || lower.includes('generador')) return 'orange';
-  if (lower.includes('agua') || lower.includes('plomer')) return 'teal';
-  if (lower.includes('inspec') || lower.includes('revision')) return 'purple';
-  return 'blue';
 }
 
 function inferIcon(workType: string): string {
@@ -38,8 +19,7 @@ function inferIcon(workType: string): string {
   return 'engineering';
 }
 
-export default function AdminDashboardScreen({ onNavigate, onLogout, jobs, adminName, onEditJob, onDeleteJob, onExportJob, isSyncing, onSyncPending }: AdminDashboardScreenProps) {
-  const pendingSync = jobs.filter(j => j.syncStatus === 'pending').length;
+export default function AdminDashboardScreen({ onNavigate, onLogout, jobs, adminName, onEditJob, onDeleteJob, onExportJob }: AdminDashboardScreenProps) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const handleDelete = (id: string) => setConfirmDeleteId(id);
@@ -96,33 +76,6 @@ export default function AdminDashboardScreen({ onNavigate, onLogout, jobs, admin
       </header>
 
       <div className="flex w-full flex-col gap-4 px-4 py-4">
-        <button
-          onClick={onSyncPending}
-          disabled={isSyncing}
-          className={`w-full flex items-center justify-center gap-3 p-4 rounded-xl border shadow-lg transition-all active:scale-[0.98] group disabled:opacity-50 ${pendingSync > 0
-            ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-            : 'bg-green-900/20 hover:bg-green-900/30 text-green-300 border-green-800/40'
-            }`}
-          type="button"
-        >
-          <span className="bg-slate-900/50 p-1.5 rounded-full flex items-center justify-center shadow-inner">
-            {isSyncing ? (
-              <span className="material-symbols-outlined animate-spin text-primary">sync</span>
-            ) : pendingSync > 0 ? (
-              <span className="material-symbols-outlined text-amber-400">cloud_upload</span>
-            ) : (
-              <span className="material-symbols-outlined text-green-400">cloud_done</span>
-            )}
-          </span>
-          <span className="text-sm font-semibold">
-            {isSyncing
-              ? 'Sincronizando...'
-              : pendingSync > 0
-                ? `Sincronizar la Nube (${pendingSync} pendientes)`
-                : 'Todo sincronizado ✓'}
-          </span>
-        </button>
-
         <div className="flex items-center justify-between mt-2">
           <h3 className="text-base font-bold text-white">Registro de Tareas Realizadas</h3>
         </div>
@@ -130,56 +83,52 @@ export default function AdminDashboardScreen({ onNavigate, onLogout, jobs, admin
 
       <main className="flex flex-1 flex-col gap-3 px-4">
         {jobs.length === 0 && (
-          <div className="rounded-xl border border-[#233648] bg-[#192633] p-4 text-sm text-[#92adc9]">No hay resultados para este filtro.</div>
+          <div className="rounded-xl border border-[#233648] bg-[#192633] p-4 text-sm text-[#92adc9]">No hay tareas registradas.</div>
         )}
 
-        {jobs.map((task) => {
-          const visual = inferVisual(task.workType);
-          return (
-            <div key={task.id} className="group relative flex flex-col gap-3 rounded-xl border border-[#233648] bg-[#192633] p-4 transition-all hover:border-primary/50">
-              <div className="flex items-start justify-between">
-                <div className="flex gap-3">
-                  <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500`}>
-                    <span className="material-symbols-outlined">{inferIcon(task.workType)}</span>
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-bold text-white">{task.workType}</h4>
-                    </div>
-                    <p className="mt-0.5 text-xs text-[#92adc9]">{task.shift} • Tech: {task.technicianName}</p>
-                  </div>
+        {jobs.map((task) => (
+          <div key={task.id} className="group relative flex flex-col gap-3 rounded-xl border border-[#233648] bg-[#192633] p-4 transition-all hover:border-primary/50">
+            <div className="flex items-start justify-between">
+              <div className="flex gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500">
+                  <span className="material-symbols-outlined">{inferIcon(task.workType)}</span>
                 </div>
-                <p className="text-xs font-medium text-[#92adc9]">{new Date(task.finishedAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</p>
+                <div>
+                  <h4 className="font-bold text-white">{task.workType}</h4>
+                  <p className="mt-0.5 text-xs text-[#92adc9]">{task.shift} • Tech: {task.technicianName}</p>
+                </div>
               </div>
-              <div className="mt-1 flex flex-col gap-3 border-t border-[#233648] pt-3">
-                <div className="flex items-center justify-between min-h-[32px]">
-                  <p className="text-xs text-slate-400 truncate max-w-[60%]">{task.area}</p>
-                  {task.signature?.startsWith('data:image/') ? (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-slate-500 uppercase">Firma:</span>
-                      <img src={task.signature} alt="Firma" className="h-6 bg-white/90 rounded object-contain px-1" />
-                    </div>
-                  ) : (
-                    <span className="text-xs italic text-slate-300 font-serif">Firma: {task.signature || 'N/A'}</span>
-                  )}
-                </div>
+              <p className="text-xs font-medium text-[#92adc9]">{new Date(task.finishedAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</p>
+            </div>
 
-                <div className="flex items-center justify-end gap-2">
-                  <button onClick={() => onExportJob(task)} className="flex h-8 items-center gap-1.5 rounded-lg bg-primary/10 px-3 text-xs font-semibold text-primary transition-colors hover:bg-primary/20" type="button" title="Exportar">
-                    <span className="material-symbols-outlined text-[16px]">picture_as_pdf</span>
-                    Exportar
-                  </button>
-                  <button onClick={() => onEditJob(task)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-700/50 text-slate-300 hover:text-white transition-colors" type="button" title="Editar">
-                    <span className="material-symbols-outlined text-[16px]">edit</span>
-                  </button>
-                  <button onClick={() => handleDelete(task.id)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors" type="button" title="Borrar">
-                    <span className="material-symbols-outlined text-[16px]">delete</span>
-                  </button>
-                </div>
+            <div className="mt-1 flex flex-col gap-3 border-t border-[#233648] pt-3">
+              <div className="flex items-center justify-between min-h-[32px]">
+                <p className="text-xs text-slate-400 truncate max-w-[60%]">{task.area}</p>
+                {task.signature?.startsWith('data:image/') ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-500 uppercase">Firma:</span>
+                    <img src={task.signature} alt="Firma" className="h-6 bg-white/90 rounded object-contain px-1" />
+                  </div>
+                ) : (
+                  <span className="text-xs italic text-slate-300 font-serif">Firma: {task.signature || 'N/A'}</span>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <button onClick={() => onExportJob(task)} className="flex h-8 items-center gap-1.5 rounded-lg bg-primary/10 px-3 text-xs font-semibold text-primary transition-colors hover:bg-primary/20" type="button" title="Exportar">
+                  <span className="material-symbols-outlined text-[16px]">picture_as_pdf</span>
+                  Exportar
+                </button>
+                <button onClick={() => onEditJob(task)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-700/50 text-slate-300 hover:text-white transition-colors" type="button" title="Editar">
+                  <span className="material-symbols-outlined text-[16px]">edit</span>
+                </button>
+                <button onClick={() => handleDelete(task.id)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors" type="button" title="Borrar">
+                  <span className="material-symbols-outlined text-[16px]">delete</span>
+                </button>
               </div>
             </div>
-          );
-        })}
+          </div>
+        ))}
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 border-t border-[#233648] bg-[#192633] px-4 pt-2 max-w-md mx-auto">
@@ -207,7 +156,7 @@ export default function AdminDashboardScreen({ onNavigate, onLogout, jobs, admin
           </button>
         </div>
       </nav>
-      {/* Modal de confirmación de borrado */}
+
       {confirmDeleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-6">
           <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-[#192633] p-6 shadow-2xl">
@@ -217,7 +166,7 @@ export default function AdminDashboardScreen({ onNavigate, onLogout, jobs, admin
               </div>
               <h3 className="text-base font-bold text-white">¿Borrar tarea?</h3>
             </div>
-            <p className="text-sm text-slate-400 mb-6">Esta acción eliminará el registro de forma permanente en todos los dispositivos. No se puede deshacer.</p>
+            <p className="text-sm text-slate-400 mb-6">Esta acción eliminará el registro de forma permanente para todos los usuarios.</p>
             <div className="flex gap-3">
               <button
                 onClick={() => setConfirmDeleteId(null)}

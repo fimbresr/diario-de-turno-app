@@ -9,6 +9,32 @@ interface RegisterJobScreenProps {
 }
 
 const emptyArea = '';
+const workAreas = [
+  'Edificio Principal Nivel 1',
+  'Edificio Principal Nivel 2',
+  'Edificio Principal Nivel 3',
+  'Edificio Principal Nivel 4',
+  'Edificio Servicios N1',
+  'Edificio Servicios N2',
+  'Edificio Servicios N3',
+  'Edificio Servicios N4',
+  'Cubierta',
+  'Estacionamiento Medicos',
+  'Estacionamiento Principal',
+  'Estacionamiento Juarez',
+  'Escaleras de Servicio',
+  'Escaleras de Emergencia',
+] as const;
+
+const workTypes = [
+  'Electrico',
+  'Hidraulico',
+  'Civil (pintura, Reparacion de Muros, Pisos, Techos)',
+  'Herreria',
+  'Mantenimiento Correctivo',
+  'Mantenimiento Preventivo',
+  'Mobiliario',
+] as const;
 
 export default function RegisterJobScreen({ onNavigate, initialDraft, onContinue, homeScreen }: RegisterJobScreenProps) {
   const [form, setForm] = useState<JobDraft>(initialDraft);
@@ -89,10 +115,12 @@ export default function RegisterJobScreen({ onNavigate, initialDraft, onContinue
                 onChange={(e) => updateField('area', e.target.value)}
               >
                 <option disabled value="">Seleccionar Área</option>
-                <option value="Planta de Producción A">Planta de Producción A</option>
-                <option value="Almacén General">Almacén General</option>
-                <option value="Oficinas Administrativas">Oficinas Administrativas</option>
-                <option value="Patio de Maniobras">Patio de Maniobras</option>
+                {!workAreas.includes(form.area as (typeof workAreas)[number]) && form.area && (
+                  <option value={form.area}>{form.area}</option>
+                )}
+                {workAreas.map((area) => (
+                  <option key={area} value={area}>{area}</option>
+                ))}
               </select>
               <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-[#92adc9]">
                 <span className="material-symbols-outlined">expand_more</span>
@@ -102,14 +130,25 @@ export default function RegisterJobScreen({ onNavigate, initialDraft, onContinue
 
           <div className="flex flex-col gap-2">
             <label className="text-white text-sm font-medium leading-normal" htmlFor="work-type">Tipo de Trabajo</label>
-            <input
+            <div className="relative">
+              <select
               id="work-type"
-              className="w-full rounded-lg bg-[#192633] border border-[#324d67] text-white placeholder-[#92adc9] h-12 px-4 focus:ring-2 focus:ring-primary outline-none text-base"
-              placeholder="Ej. Reparación eléctrica"
-              type="text"
+              className="w-full appearance-none rounded-lg bg-[#192633] border border-[#324d67] text-white h-12 px-4 pr-10 focus:ring-2 focus:ring-primary outline-none text-base"
               value={form.workType}
               onChange={(e) => updateField('workType', e.target.value)}
-            />
+              >
+                <option disabled value="">Seleccionar Tipo</option>
+                {!workTypes.includes(form.workType as (typeof workTypes)[number]) && form.workType && (
+                  <option value={form.workType}>{form.workType}</option>
+                )}
+                {workTypes.map((type) => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-[#92adc9]">
+                <span className="material-symbols-outlined">expand_more</span>
+              </div>
+            </div>
           </div>
 
           <div className="flex flex-col gap-2">

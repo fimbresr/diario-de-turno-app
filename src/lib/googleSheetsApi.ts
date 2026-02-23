@@ -4,69 +4,114 @@ const googleSheetsUrl = import.meta.env.VITE_GOOGLE_SHEETS_URL;
 export const isGoogleSheetsConfigured = Boolean(googleSheetsUrl && googleSheetsUrl.trim() !== '');
 
 function assertGoogleSheetsConfig(): void {
-    if (!isGoogleSheetsConfigured) {
-        throw new Error('Falta configurar VITE_GOOGLE_SHEETS_URL en el archivo .env.');
-    }
+  if (!isGoogleSheetsConfigured) {
+    throw new Error('Falta configurar VITE_GOOGLE_SHEETS_URL en el archivo .env.');
+  }
 }
 
-export async function syncJobToSheets(job: Job): Promise<boolean> {
-    assertGoogleSheetsConfig();
+function getJobTimestamp(job: Job): number {
+  const finished = Date.parse(job.finishedAt || '');
+  const created = Date.parse(job.createdAt || '');
+  const best = Number.isNaN(finished) ? created : finished;
+  return Number.isNaN(best) ? 0 : best;
+}
 
-    try {
-        const response = await fetch(googleSheetsUrl, {
-            method: 'POST',
-            mode: 'no-cors', // Essential for basic Google Scripts integration without advanced CORS setup
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                id: job.id,
-                area: job.area,
-                workType: job.workType,
-                description: job.description,
-                additionalComments: job.additionalComments,
-                technicianName: job.technicianName,
-                shift: job.shift,
-                signature: job.signature, // Este podría ser bastante grande (base64)
-                beforePhoto: job.beforePhoto ?? '',
-                afterPhoto: job.afterPhoto ?? '',
-                createdAt: job.createdAt,
-                finishedAt: job.finishedAt,
-                deleted: job.deleted ?? false,   // <-- para delete cross-device
-            }),
-        });
+function normalizeJobs(rows: Job[]): Job[] {
+  const byId = new Map<string, Job>();
 
-        // When using no-cors, response is opaque (status is 0), so we assume success if fetch didn't throw a network error.
-        return true;
-    } catch (error) {
-        console.error('Error enviando datos a Google Sheets:', error);
-        throw new Error('Fallo de red al intentar conectar con Google Sheets.');
+  for (const row of rows) {
+    if (!row?.id) continue;
+
+    const current = byId.get(row.id);
+    if (!current) {
+      byId.set(row.id, row);
+      continue;
     }
+
+    const rowTs = getJobTimestamp(row);
+    const currentTs = getJobTimestamp(current);
+
+    if (rowTs > currentTs || (rowTs === currentTs && row.deleted && !current.deleted)) {
+      byId.set(row.id, row);
+    }
+  }
+
+  return Array.from(byId.values())
+    .filter((job) => !job.deleted)
+    .sort((a, b) => getJobTimestamp(b) - getJobTimestamp(a));
+}
+
+export async function syncJobToSheets(job: Job): Promise<void> {
+  assertGoogleSheetsConfig();
+
+  try {
+    await fetch(googleSheetsUrl, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: job.deleted ? 'delete' : 'upsert',
+        id: job.id,
+        area: job.area,
+        workType: job.workType,
+        description: job.description,
+        additionalComments: job.additionalComments,
+        technicianName: job.technicianName,
+        shift: job.shift,
+        signature: job.signature,
+        beforePhoto: job.beforePhoto ?? '',
+        afterPhoto: job.afterPhoto ?? '',
+        createdAt: job.createdAt,
+        finishedAt: job.finishedAt,
+        deleted: job.deleted ?? false,
+      }),
+    });
+  } catch (error) {
+    console.error('Error enviando datos a Google Sheets:', error);
+    throw new Error('Fallo de red al intentar conectar con Google Sheets.');
+  }
 }
 
 export async function fetchJobsFromSheets(): Promise<Job[]> {
-    assertGoogleSheetsConfig();
+  assertGoogleSheetsConfig();
 
-    try {
-        // Para GET usamos CORS estándar. Dado que Apps Script para WebApps públicas suele devolver 
-        // JSON puro si se sigue el redirect transparente del fetch, esto recabará los registros.
-        const response = await fetch(googleSheetsUrl, {
-            method: 'GET',
-        });
+  try {
+    const response = await fetch(googleSheetsUrl, {
+      method: 'GET',
+    });
+    const responseText = await response.text();
 
-        if (!response.ok) {
-            throw new Error(`Error HTTP: ${response.status}`);
-        }
-
-        const json = await response.json();
-
-        if (json.success && Array.isArray(json.data)) {
-            return json.data;
-        }
-
-        return [];
-    } catch (error) {
-        console.error('Error leyendo datos desde Google Sheets:', error);
-        throw new Error('No se pudieron descargar los registros en la nube.');
+    if (!response.ok) {
+      throw new Error(`Error HTTP: ${response.status}`);
     }
+
+    let json: unknown;
+    try {
+      json = JSON.parse(responseText);
+    } catch {
+      // Apps Script suele devolver HTML cuando hay errores internos; extraemos una pista útil.
+      const htmlErrorMatch = responseText.match(/<div[^>]*>([^<]*(TypeError|Error)[^<]*)<\/div>/i);
+      if (htmlErrorMatch?.[1]) {
+        throw new Error(`Apps Script: ${htmlErrorMatch[1].trim()}`);
+      }
+      throw new Error('La respuesta de Google Sheets no es JSON válido.');
+    }
+
+    if (typeof json === 'object' && json !== null && 'success' in json && 'data' in json) {
+      const payload = json as { success?: boolean; data?: unknown };
+      if (payload.success && Array.isArray(payload.data)) {
+        return normalizeJobs(payload.data as Job[]);
+      }
+    }
+
+    return [];
+  } catch (error) {
+    console.error('Error leyendo datos desde Google Sheets:', error);
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('No se pudieron descargar los registros en la nube.');
+  }
 }
