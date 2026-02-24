@@ -13,7 +13,7 @@ const PORT = Number(process.env.PORT || 4000);
 const DATABASE_URL = process.env.DATABASE_URL;
 const JWT_SECRET = process.env.JWT_SECRET;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
-const JSON_LIMIT = process.env.JSON_LIMIT || '14mb';
+const JSON_LIMIT = process.env.JSON_LIMIT || '25mb';
 
 if (!DATABASE_URL) {
   console.error('Missing DATABASE_URL');

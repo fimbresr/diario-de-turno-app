@@ -3,6 +3,11 @@ import type { Job, Technician } from '../types';
 const tokenStorageKey = 'diario_turno_token_v1';
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
 
+interface ParsedResponse {
+  payload: unknown;
+  isJson: boolean;
+}
+
 let authToken: string | null = null;
 
 if (typeof window !== 'undefined') {
@@ -26,15 +31,31 @@ function buildUrl(path: string): string {
   return `${apiBaseUrl}${normalizedPath}`;
 }
 
-async function parseResponse(response: Response): Promise<unknown> {
+async function parseResponse(response: Response): Promise<ParsedResponse | null> {
   const text = await response.text();
+  const contentType = response.headers.get('content-type') || '';
 
   if (!text) return null;
 
+  const shouldParseJson = contentType.includes('application/json') || contentType.includes('+json');
+
+  if (!shouldParseJson) {
+    return {
+      payload: text,
+      isJson: false,
+    } satisfies ParsedResponse;
+  }
+
   try {
-    return JSON.parse(text);
+    return {
+      payload: JSON.parse(text),
+      isJson: true,
+    } satisfies ParsedResponse;
   } catch {
-    throw new Error('La respuesta del backend no es JSON válido.');
+    return {
+      payload: text,
+      isJson: false,
+    } satisfies ParsedResponse;
   }
 }
 
@@ -54,9 +75,23 @@ async function request<T>(path: string, init: RequestInit = {}, requiresAuth = t
     headers,
   });
 
-  const payload = await parseResponse(response);
+  const parsed = await parseResponse(response);
+  const payload = parsed?.payload ?? null;
+  const isJson = parsed?.isJson ?? true;
 
   if (!response.ok) {
+    if (response.status === 401) {
+      setStoredToken(null);
+    }
+
+    if (response.status === 413) {
+      throw new Error('La información adjunta es demasiado grande. Sube fotos más ligeras e intenta de nuevo.');
+    }
+
+    if (!isJson) {
+      throw new Error(`Error HTTP ${response.status}. El servidor devolvió un formato no esperado.`);
+    }
+
     const errorMessage =
       typeof payload === 'object'
       && payload !== null
@@ -65,11 +100,11 @@ async function request<T>(path: string, init: RequestInit = {}, requiresAuth = t
         ? (payload as { error: { message: string } }).error.message
         : `Error HTTP ${response.status}`;
 
-    if (response.status === 401) {
-      setStoredToken(null);
-    }
-
     throw new Error(errorMessage);
+  }
+
+  if (!isJson) {
+    throw new Error('La respuesta del backend no es JSON válido.');
   }
 
   if (typeof payload === 'object' && payload !== null && 'data' in payload) {

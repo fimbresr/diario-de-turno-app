@@ -36,6 +36,50 @@ const workTypes = [
   'Mobiliario',
 ] as const;
 
+const maxUploadFileBytes = 10 * 1024 * 1024;
+const maxEncodedImageBytes = 1_500_000;
+const maxImageSide = 1280;
+const imageQuality = 0.72;
+
+function estimateDataUrlBytes(dataUrl: string): number {
+  const base64 = dataUrl.split(',')[1] || '';
+  return Math.ceil((base64.length * 3) / 4);
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve((reader.result as string) || '');
+    reader.onerror = () => reject(new Error('No se pudo leer la imagen.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function compressDataUrlImage(dataUrl: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const ratio = Math.min(1, maxImageSide / Math.max(image.width, image.height));
+      const width = Math.max(1, Math.round(image.width * ratio));
+      const height = Math.max(1, Math.round(image.height * ratio));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+
+      if (!ctx) {
+        reject(new Error('No se pudo procesar la imagen.'));
+        return;
+      }
+
+      ctx.drawImage(image, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', imageQuality));
+    };
+    image.onerror = () => reject(new Error('No se pudo procesar la imagen.'));
+    image.src = dataUrl;
+  });
+}
+
 export default function RegisterJobScreen({ onNavigate, initialDraft, onContinue, homeScreen }: RegisterJobScreenProps) {
   const [form, setForm] = useState<JobDraft>(initialDraft);
   const [error, setError] = useState('');
@@ -57,24 +101,32 @@ export default function RegisterJobScreen({ onNavigate, initialDraft, onContinue
     setError('');
   };
 
-  const handleFileChange = (field: 'beforePhoto' | 'afterPhoto', e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (field: 'beforePhoto' | 'afterPhoto', e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      setError('La imagen es muy grande. Intenta con una imagen de menos de 5MB.');
+    if (file.size > maxUploadFileBytes) {
+      setError('La imagen es muy grande. Intenta con una imagen de menos de 10MB.');
+      e.target.value = '';
       return;
     }
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64String = reader.result as string;
-      updateField(field, base64String);
-    };
-    reader.onerror = () => {
-      setError('Ocurrió un error al leer la imagen.');
-    };
-    reader.readAsDataURL(file);
+    try {
+      const rawDataUrl = await fileToDataUrl(file);
+      const compressedDataUrl = await compressDataUrlImage(rawDataUrl);
+
+      if (estimateDataUrlBytes(compressedDataUrl) > maxEncodedImageBytes) {
+        setError('La foto sigue siendo pesada. Intenta tomarla con menor resolución.');
+        e.target.value = '';
+        return;
+      }
+
+      updateField(field, compressedDataUrl);
+    } catch {
+      setError('Ocurrió un error al procesar la imagen.');
+    } finally {
+      e.target.value = '';
+    }
   };
 
   const goNext = () => {
