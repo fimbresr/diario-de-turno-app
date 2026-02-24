@@ -8,19 +8,17 @@ import TechHistoryScreen from './screens/TechHistoryScreen';
 import TechProfileScreen from './screens/TechProfileScreen';
 import AdminTeamScreen from './screens/AdminTeamScreen';
 import AdminSettingsScreen from './screens/AdminSettingsScreen';
-import { fetchJobsFromSheets, isGoogleSheetsConfigured, syncJobToSheets } from './lib/googleSheetsApi';
+import {
+  clearAuthToken,
+  deleteJobInBackend,
+  fetchJobsFromBackend,
+  fetchTechniciansFromBackend,
+  hasAuthToken,
+  loginAgainstBackend,
+  upsertJobInBackend,
+} from './lib/backendApi';
 import { generatePdf } from './lib/pdfExport';
 import type { Job, JobDraft, Screen, Technician } from './types';
-
-const techniciansSeed: Technician[] = [
-  { id: 'sanchez_hector', name: 'HECTOR RAUL SANCHEZ BUELNA', role: 'tech', shift: '', password: 'HS38123' },
-  { id: 'encinas_luis', name: 'LUIS CARLOS ENCINAS CORDOVA', role: 'tech', shift: '', password: 'LE52124' },
-  { id: 'fimbres_rene', name: 'RENE FIMBRES VASQUEZ', role: 'admin', shift: '', password: 'RF15621' },
-  { id: 'mendoza_rogelio', name: 'ROGELIO MENDOZA GUEVARA', role: 'tech', shift: '', password: 'RM55624' },
-  { id: 'barba_jesus', name: 'JESUS MIGUEL BARBA ALCANTAR', role: 'tech', shift: '', password: 'JB57025' },
-  { id: 'quijada_rogelio', name: 'ROGELIO ALBERTO QUIJADA GARCIA', role: 'tech', shift: '', password: 'RQ44523' },
-  { id: 'lopez_carlos', name: 'CARLOS LOPEZ RENTERIA', role: 'tech', shift: '', password: 'CL65326' },
-];
 
 const emptyDraft: JobDraft = {
   area: '',
@@ -79,7 +77,7 @@ export default function App() {
     restoredUser ? (restoredUser.role === 'admin' ? 'admin_dashboard' : 'tech_dashboard') : 'login',
   );
   const [currentUser, setCurrentUser] = useState<Technician | null>(restoredUser);
-  const [technicians] = useState<Technician[]>(techniciansSeed);
+  const [technicians, setTechnicians] = useState<Technician[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [draft, setDraft] = useState<JobDraft>(emptyDraft);
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
@@ -98,13 +96,9 @@ export default function App() {
   }, [currentUser, jobs]);
 
   const refreshJobs = async (retryCount = 1, retryDelayMs = 450) => {
-    if (!isGoogleSheetsConfigured) {
-      throw new Error('Falta configurar VITE_GOOGLE_SHEETS_URL. Sin esto no hay sincronización.');
-    }
-
     for (let attempt = 0; attempt <= retryCount; attempt += 1) {
       try {
-        const remoteJobs = await fetchJobsFromSheets();
+        const remoteJobs = await fetchJobsFromBackend();
         setJobs(remoteJobs);
         return;
       } catch (error) {
@@ -122,24 +116,29 @@ export default function App() {
     async function initializeData() {
       setIsBootstrapping(true);
 
-      if (!isGoogleSheetsConfigured) {
-        if (active) {
-          setJobs([]);
-          setBackendError('Falta VITE_GOOGLE_SHEETS_URL. La app ahora requiere backend online (sin modo offline).');
-          setIsBootstrapping(false);
-        }
-        return;
-      }
-
       try {
-        const remoteJobs = await fetchJobsFromSheets();
+        const techniciansList = await fetchTechniciansFromBackend();
         if (!active) return;
 
-        setJobs(remoteJobs);
+        setTechnicians(techniciansList);
+
+        if (restoredUser && hasAuthToken()) {
+          const remoteJobs = await fetchJobsFromBackend();
+          if (!active) return;
+          setJobs(remoteJobs);
+        } else if (restoredUser && !hasAuthToken()) {
+          setCurrentUser(null);
+          setCurrentScreen('login');
+          setJobs([]);
+          if (typeof window !== 'undefined') {
+            window.localStorage.removeItem(sessionStorageKey);
+          }
+        }
+
         setBackendError('');
       } catch (error) {
         if (!active) return;
-        setBackendError(error instanceof Error ? error.message : 'No se pudo cargar el historial desde Google Sheets.');
+        setBackendError(error instanceof Error ? error.message : 'No se pudieron cargar los datos del backend.');
       } finally {
         if (active) {
           setIsBootstrapping(false);
@@ -166,24 +165,21 @@ export default function App() {
   }, [currentUser]);
 
   const handleLogin = async (technicianId: string, password: string, shift: string) => {
-    if (!isGoogleSheetsConfigured) {
-      setBackendError('No se puede iniciar sesión sin Google Sheets configurado.');
+    try {
+      const user = await loginAgainstBackend(technicianId, password, shift);
+      setCurrentUser(user);
+      setBackendError('');
+      setCurrentScreen(user.role === 'admin' ? 'admin_dashboard' : 'tech_dashboard');
+      await refreshJobs(2, 500);
+      return true;
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : 'No se pudo iniciar sesión.');
       return false;
     }
-
-    const user = technicians.find((tech) => tech.id === technicianId);
-
-    if (!user || user.password !== password) {
-      return false;
-    }
-
-    setCurrentUser({ ...user, shift });
-    setBackendError('');
-    setCurrentScreen(user.role === 'admin' ? 'admin_dashboard' : 'tech_dashboard');
-    return true;
   };
 
   const handleLogout = () => {
+    clearAuthToken();
     setCurrentUser(null);
     setDraft(emptyDraft);
     setEditingJobId(null);
@@ -201,10 +197,6 @@ export default function App() {
   const handleFinalizeJob = async (signature: string) => {
     if (!currentUser) {
       throw new Error('No hay sesión activa.');
-    }
-
-    if (!isGoogleSheetsConfigured) {
-      throw new Error('Google Sheets no está configurado.');
     }
 
     setIsWorking(true);
@@ -251,7 +243,7 @@ export default function App() {
         };
       }
 
-      await syncJobToSheets(payload);
+      await upsertJobInBackend(payload);
       try {
         await refreshJobs(2, 500);
         setBackendError('');
@@ -287,11 +279,6 @@ export default function App() {
       return;
     }
 
-    if (!isGoogleSheetsConfigured) {
-      setBackendError('Google Sheets no está configurado.');
-      return;
-    }
-
     const job = jobs.find((item) => item.id === jobId);
     if (!job) {
       return;
@@ -300,11 +287,7 @@ export default function App() {
     setIsWorking(true);
 
     try {
-      await syncJobToSheets({
-        ...job,
-        deleted: true,
-        finishedAt: new Date().toISOString(),
-      });
+      await deleteJobInBackend(jobId);
 
       try {
         await refreshJobs(2, 500);

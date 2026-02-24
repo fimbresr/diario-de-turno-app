@@ -24,7 +24,7 @@ export default function AdminTeamScreen({ onNavigate, technicians }: AdminTeamSc
           {technicians.map((tech) => (
             <article key={tech.id} className="rounded-xl border border-slate-800 bg-[#192633] p-4">
               <h2 className="font-bold">{tech.name}</h2>
-              <p className="text-xs text-slate-400 mt-1">{tech.role === 'admin' ? 'Administrador' : 'Técnico'} • {tech.shift}</p>
+              <p className="text-xs text-slate-400 mt-1">{tech.role === 'admin' ? 'Administrador' : 'Técnico'} • {tech.shift || '-'}</p>
             </article>
           ))}
         </div>

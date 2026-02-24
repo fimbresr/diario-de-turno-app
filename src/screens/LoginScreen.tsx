@@ -71,7 +71,7 @@ export default function LoginScreen({ onLogin, technicians, isBootstrapping, bac
         </div>
 
         <div className="mb-4 rounded-lg border border-[#324d67] bg-[#192633] px-3 py-2 text-xs text-slate-300">
-          Backend activo: <span className="font-semibold text-white">Google Sheets</span>
+          Backend activo: <span className="font-semibold text-white">PostgreSQL API</span>
         </div>
 
         {isBootstrapping && (

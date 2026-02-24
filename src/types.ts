@@ -16,7 +16,7 @@ export interface Technician {
   name: string;
   role: Role;
   shift: string;
-  password: string;
+  password?: string;
 }
 
 export interface JobDraft {

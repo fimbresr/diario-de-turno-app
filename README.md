@@ -1,43 +1,67 @@
-# Diario de Turno - Google Sheets Online
+# Diario de Turno - PostgreSQL Backend
 
-Aplicación React (Vite + TypeScript) con sincronización online directa a Google Sheets (sin modo offline).
+Aplicacion React (Vite + TypeScript) con backend propio (Express + PostgreSQL), sin modo offline.
+
+## Stack
+
+- Frontend: React + Vite
+- Backend: Express (`server/index.js`)
+- Base de datos: PostgreSQL
+- Auth: JWT
 
 ## Requisitos
 
 - Node.js 20+
-- Un Google Apps Script publicado como Web App
-- URL del Web App en `VITE_GOOGLE_SHEETS_URL`
+- PostgreSQL 14+
 
-## Configuración
+## Configuracion
 
-1. En Google Apps Script:
-   - Crea un proyecto vinculado a una hoja.
-   - Pega el archivo `apps-script/Code.gs`.
-   - Si el script es standalone, ve a `Project Settings > Script properties` y agrega:
-     - `SPREADSHEET_ID=<ID de tu Google Sheet>`
-   - Publica como Web App con acceso de lectura/escritura para quienes usarán la app.
-
-2. Crea `.env.local` en la raíz:
+1. Copia variables de ejemplo:
 
 ```bash
-VITE_GOOGLE_SHEETS_URL="https://script.google.com/macros/s/TU_ID/exec"
+cp .env.example .env
 ```
 
-3. Ejecuta:
+2. Ajusta en `.env`:
+
+```bash
+VITE_API_BASE_URL="/api"
+PORT=4000
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/diario_turno"
+JWT_SECRET="cambia-este-secreto"
+JWT_EXPIRES_IN="12h"
+CORS_ORIGIN="http://localhost:3000,http://72.62.201.8"
+SEED_DEFAULT_USERS=true
+```
+
+3. Instala dependencias:
 
 ```bash
 npm install
+```
+
+4. Ejecuta backend y frontend (en terminales separadas):
+
+```bash
+npm run api
 npm run dev
 ```
 
-## Lógica operativa
+## API principal
 
-- Todas las tareas se leen desde Google Sheets al iniciar.
-- Al cerrar o editar tarea, se envía inmediatamente a Google Sheets y se refresca el historial.
-- Al borrar tarea (solo admin), se envía evento de borrado y se refresca historial.
-- No hay cola offline ni sincronización manual.
+- `POST /api/auth/login`
+- `GET /api/public/technicians`
+- `GET /api/tasks`
+- `PUT /api/tasks/:id`
+- `DELETE /api/tasks/:id` (solo admin)
 
 ## Permisos
 
 - Admin: crear, editar, cerrar, borrar y exportar.
 - Usuario normal: crear, editar y cerrar.
+
+## Logica operativa
+
+- Todas las tareas se guardan y leen desde PostgreSQL.
+- No hay cola offline.
+- Pull-to-refresh y F5/Ctrl+R hacen sincronizacion forzada contra backend.
